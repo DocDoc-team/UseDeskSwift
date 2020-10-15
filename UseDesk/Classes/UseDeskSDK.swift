@@ -1313,7 +1313,10 @@ public class UseDeskSDK: NSObject {
         dialogflowVC = DialogflowView()
         offlineVC = UDOfflineForm()
         idLoadingMessages = []
+        socket = manager?.defaultSocket
+        socket?.removeAllHandlers()
         socket?.disconnect()
+        socket = nil
         historyMess = []
         companyID = ""
         chanelId = ""
