@@ -2,55 +2,63 @@
 //  UseDeskSDKHelp.swift
 
 import Foundation
+import SocketIO
 
 class UseDeskSDKHelp {
-    class func config_CompanyID(_ companyID: String?, email: String, phone: String?, name: String?, url: String?, token: String?) -> [Any]? {
+    class func config_CompanyID(_ companyID: String, chanelId: String, email: String, phone: String?, name: String?, url: String?, token: String?) -> [SocketData]? {
         let payload = [
-            "sdk" : "iOS"
+            "sdk" : "iOS",
+            "type" : "sdk"
         ]
         var dic = [
             "type" : "@@server/chat/INIT",
             "payload" : payload,
-            "company_id" : companyID ?? "",
+            "company_id" : chanelId != "" ? "\(companyID)_\(chanelId)" : companyID,
             "url" : url ?? ""
             ] as [String : Any]
         if token != nil {
-            dic["token"] = token
+            if token != "" {
+                dic["token"] = token
+            }
         }
         
         return [dic]
     }
     
-    class func dataEmail(_ email: String?, phone: String?, name: String?) -> [Any]? {
+    class func dataClient(_ email: String = "", phone: String = "", name: String = "", note: String = "", signature: String = "", additional_id: String? = nil) -> [SocketData]? {
         var dic: [String : Any] = [
-            "type" : "@@server/chat/SET_EMAIL",
-            "email" : email ?? ""
+            "type"  : "@@server/chat/SET_CLIENT"
         ]
-        var payload: [String : Any] = [:]
-        if name != nil {
-            if name != "" {
-                payload["name"] = name!
-            }
-        }
-        if phone != nil {
-            if phone != "" {
-                payload["phone"] = phone!
-            }
-        }
-        if email != nil {
-            if email != "" {
-                payload["email"] = email!
-            }
+        var payload: [String : Any] = [
+            "email"    : email,
+            "username" : name,
+            "phone"    : phone,
+            "note"     : note
+        ]
+//        if additional_id != nil {
+//            if additional_id != "" {
+//                payload["additional_id"] = additional_id
+//            }
+//        }
+        if signature != "" {
+            payload["signature"] = signature
         }
         dic["payload"] = payload
         return [dic]
     }
     
-    class func messageText(_ text: String?) -> [Any]? {
+    class func messageText(_ text: String, messageId: String? = nil) -> [SocketData]? {
         
-        let message = [
-            "text" : text ?? ""
+        var message: [String : Any] = [
+            "text" : text
         ]
+        
+        if messageId != nil {
+            let payload = [
+                "message_id" : messageId!
+            ]
+            message["payload"] = payload
+        }
         
         let dic = [
             "type" : "@@server/chat/SEND_MESSAGE",
@@ -59,7 +67,7 @@ class UseDeskSDKHelp {
         return [dic]
     }
     
-    class func feedback(_ fb: Bool) -> [Any]? {
+    class func feedback(_ fb: Bool, message_id: Int) -> [SocketData]? {
         var data: String
         
         if fb {
@@ -68,10 +76,13 @@ class UseDeskSDKHelp {
             data = "DISLIKE"
         }
 
-        let payload = [
+        var payload: [String : Any] = [
             "data" : data,
             "type" : "action"
         ]
+        if message_id != 0 {
+            payload["messageId"] = String(message_id)
+        }
         
         let dic = [
             "type" : "@@server/chat/CALLBACK",
@@ -80,7 +91,7 @@ class UseDeskSDKHelp {
         return [dic]
     }
     
-    class func message(_ text: String?, withFileName fileName: String?, fileType: String?, contentBase64: String?) -> [Any]? {
+    class func message(_ text: String?, withFileName fileName: String?, fileType: String?, contentBase64: String?) -> [SocketData]? {
         let file = [
             "name" : fileName ?? "",
             "type" : fileType ?? "",
@@ -116,7 +127,7 @@ class UseDeskSDKHelp {
     }
     
     class func image(toNSString image: UIImage) -> String {
-        let imageData: Data = UIImagePNGRepresentation(image)!
+        let imageData: Data = image.pngData()!
         return imageData.base64EncodedString(options: .lineLength64Characters)
     }
 }

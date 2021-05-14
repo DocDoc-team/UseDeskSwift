@@ -4,97 +4,90 @@
 
 import Foundation
 import UIKit
-import QBImagePickerController
-import MBProgressHUD
 import AVKit
+import Photos
 
-class DialogflowView: RCMessagesView, UIImagePickerControllerDelegate, UINavigationControllerDelegate, QBImagePickerControllerDelegate {
+protocol DialogflowVCDelegate: class {
+    func close()
+}
 
-    var rcmessages: [RCMessage] = []
+class DialogflowView: UDMessagesView {
+
+    var messages: [UDMessage] = []
     var isFromBase = false
     
-    private var hudErrorConnection: MBProgressHUD?
-    private var imageVC: UDImageView!
+    weak var delegate: DialogflowVCDelegate?
+    
+    private var fileViewingVC: UDFileViewingVC!
+    private var isDark = false
     
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        if let backButtonImage = backButtonImage {
+        if let navController = navigationController as? UDNavigationController {
+            isDark = navController.isDark
+        }
+        
+        if let backButtonImage = configurationStyle.navigationBarStyle.backButtonImage {
             navigationItem.leftBarButtonItem = UIBarButtonItem(image: backButtonImage, style: .plain, target: self, action: #selector(self.actionDone))
         } else {
             navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .reply, target: self, action: #selector(self.actionDone))
         }
         
         navigationItem.title = usedesk?.nameChat
-        hudErrorConnection = MBProgressHUD(view: view)
-        hudErrorConnection?.removeFromSuperViewOnHide = true
-        view.addSubview(hudErrorConnection!)
-        
-        hudErrorConnection?.mode = MBProgressHUDMode.indeterminate//MBProgressHUDModeIndeterminate
-        //hudErrorConnection.label.text = @"Loading";
-        //dicLoadingBuffer = [AnyHashable : Any]()
-        
-        //buttonInputAttach.isUserInteractionEnabled = false
-        //if ([FUser wallpaper] != nil)
-        //self.tableView.backgroundView = [[UIImageView alloc] initWithImage:[UIImage imageNamed:[FUser wallpaper]]];
         
         //Notification
         NotificationCenter.default.addObserver(self, selector: #selector(self.openUrlFromMessageButton(_:)), name: Notification.Name("messageButtonURLOpen"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(self.sendMessageButton(_:)), name: Notification.Name("messageButtonSend"), object: nil)
         
-        rcmessages = [RCMessage]()
+        messages = [UDMessage]()
         
-        guard usedesk != nil else {
-            reloadhistory()
-            return
-        }
-        usedesk!.connectBlock = { [weak self] success, error in
+        usedesk?.connectBlock = { [weak self] success, error in
             guard let wSelf = self else {return}
-            wSelf.hudErrorConnection?.hide(animated: true)
-            wSelf.reloadhistory()
         }
         
-        usedesk!.newMessageBlock = { [weak self] success, message in
-            guard let wSelf = self else {return}
-            if let aMessage = message {
-                wSelf.rcmessages.append(aMessage)
-            }
-            wSelf.refreshTableView1()
-//            if message?.incoming != false {
-//                UDAudio.playMessageIncoming()
-//            }
-        }
-        
-        usedesk!.feedbackAnswerMessageBlock = { [weak self] success in
-            guard let wSelf = self else {return}
-            let alert = UIAlertController(title: "", message: "Спасибо за вашу оценку", preferredStyle: .alert)
-            
-            
-            let yesButton = UIAlertAction(title: "Ok", style: .default, handler: { action in
-                //Handle your yes please button action here
+        usedesk?.newMessageBlock = { success, messageOptional in
+            DispatchQueue.main.async(execute: { [weak self] in
+                guard let wSelf = self else {return}
+                guard let message = messageOptional else {return}
+                if message.loadingMessageId != "" && message.outgoing {
+                    let loadingMessageId = message.loadingMessageId
+                    var indexSection = 0
+                    var index = 0
+                    var isFind = false
+                    while !isFind && indexSection < wSelf.messagesWithSection.count {
+                        index = 0
+                        while !isFind && index < wSelf.messagesWithSection[indexSection].count {
+                            if wSelf.messagesWithSection[indexSection][index].loadingMessageId == loadingMessageId {
+                                isFind = true
+                                message.loadingMessageId = ""
+                                message.isNotSent = false
+                                message.file = wSelf.messagesWithSection[indexSection][index].file
+                                message.status = wSelf.messagesWithSection[indexSection][index].status
+                                wSelf.messagesWithSection[indexSection][index] = message
+                            }
+                            index += 1
+                        }
+                        indexSection += 1
+                    }
+                    if let replaceMessage = wSelf.messages.filter({ $0.loadingMessageId == loadingMessageId}).first {
+                        if let index = wSelf.messages.firstIndex(of: replaceMessage) {
+                            wSelf.messages[index] = message
+                        }
+                    }
+                } else {
+                    wSelf.addMessage(message)
+                }
+                wSelf.tableView.reloadData()
             })
-            
-            alert.addAction(yesButton)
-            
-            wSelf.present(alert, animated: true)
         }
         
-        usedesk!.errorBlock = { [weak self] errors in
+        usedesk?.feedbackMessageBlock = { [weak self] newMessage in
             guard let wSelf = self else {return}
-            if (errors?.count ?? 0) > 0 {
-                wSelf.hudErrorConnection?.label.text = (errors?[0] as! String)
+            if let message = newMessage {
+                wSelf.addMessage(message)
             }
-            wSelf.hudErrorConnection?.show(animated: true)
         }
-        
-        usedesk!.feedbackMessageBlock = { [weak self] message in
-            guard let wSelf = self else {return}
-            if let aMessage = message {
-                wSelf.rcmessages.append(aMessage)
-            }
-            wSelf.refreshTableView1()
-        }
-        
         reloadhistory()
     }
     
@@ -105,24 +98,90 @@ class DialogflowView: RCMessagesView, UIImagePickerControllerDelegate, UINavigat
     
     func reloadhistory() {
         if usedesk != nil {
-            rcmessages = []
-            for message in (usedesk!.historyMess) {
-                rcmessages.append(message)
+            for message in messages {
+                if message.file.path != "" {
+                    let url = URL(fileURLWithPath: message.file.path)
+                    do {
+                        try FileManager.default.removeItem(at: url)
+                    } catch {}
+                }
             }
-            refreshTableView1()
+            messages = []
+            for message in (usedesk!.historyMess) {
+                messages.append(message)
+            }
+            refreshTableView()
+        }
+    }
+    
+    func generateSectionFromModel(messagesArray: [UDMessage]) {
+        messagesWithSection = []
+        guard messagesArray.count > 0 else {return}
+        messagesWithSection.append([messagesArray[0]])
+        var indexSection = 0
+        for index in 1..<messagesArray.count {
+            var dateStringSection = ""
+            var dateStringObject = ""
+            // date section
+            if messagesWithSection[indexSection][0].date != nil {
+                dateStringSection = messagesWithSection[indexSection][0].date!.dateFormatString
+            }
+            if messagesArray[index].date != nil {
+                dateStringObject = messagesArray[index].date!.dateFormatString
+            }
+            if dateStringSection.count > 0 && dateStringObject.count > 0 {
+                if dateStringSection == dateStringObject {
+                    messagesWithSection[indexSection].append(messagesArray[index])
+                } else {
+                    messagesWithSection.append([messagesArray[index]])
+                    indexSection += 1
+                }
+            }
         }
     }
     
     // MARK: - Message methods
-    override func rcmessage(_ indexPath: IndexPath?) -> RCMessage? {
-        return (rcmessages[indexPath!.section])
+    func addMessage(_ message: UDMessage) {
+        DispatchQueue.main.async(execute: { [weak self] in
+            guard let wSelf = self else {return}
+            wSelf.messages.append(message)
+            if wSelf.messagesWithSection.count > 0 {
+                wSelf.messagesWithSection[0].insert(message, at: 0)
+            } else {
+                wSelf.messagesWithSection.append([message])
+            }
+            wSelf.tableView.reloadData()
+        })
+    }
+    func chekSentMessage(_ message: UDMessage) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 7) { [weak self] in
+            guard let wSelf = self else {return}
+            let loadingMessageId = message.loadingMessageId
+            var indexSection = 0
+            var index = 0
+            var isFind = false
+            while !isFind && indexSection < wSelf.messagesWithSection.count {
+                index = 0
+                while !isFind && index < wSelf.messagesWithSection[indexSection].count {
+                    if wSelf.messagesWithSection[indexSection][index].loadingMessageId == loadingMessageId {
+                        isFind = true
+                        if wSelf.messagesWithSection[indexSection][index].loadingMessageId != "" {
+                            wSelf.messagesWithSection[indexSection][index] = message
+                            if let replaceMessage = wSelf.messages.filter({ $0.loadingMessageId == loadingMessageId}).first {
+                                if let index = wSelf.messages.firstIndex(of: replaceMessage) {
+                                    wSelf.messages[index] = message
+                                }
+                            }
+                        }
+                    }
+                    index += 1
+                }
+                indexSection += 1
+            }
+            wSelf.tableView.reloadData()
+        }
     }
     
-    func addMessage(_ text: String?, incoming: Bool) {
-        let rcmessage = RCMessage(text: text, incoming: incoming)
-        rcmessages.append(rcmessage)
-        refreshTableView1()
-    }
     // MARK: - Message Button methods
     @objc func openUrlFromMessageButton(_ notification: NSNotification) {
         if let url = notification.userInfo?["url"] as? String {
@@ -130,7 +189,7 @@ class DialogflowView: RCMessagesView, UIImagePickerControllerDelegate, UINavigat
             if #available(iOS 10.0, *) {
                 if UIApplication.shared.responds(to: #selector(UIApplication.open(_:options:completionHandler:))) {
                     if let anUrl = url {
-                        UIApplication.shared.open(anUrl, options: [:], completionHandler: nil)
+                        UIApplication.shared.open(anUrl, options: convertToUIApplicationOpenExternalURLOptionsKeyDictionary([:]), completionHandler: nil)
                     }
                 } else {
                     // Fallback on earlier versions
@@ -152,55 +211,28 @@ class DialogflowView: RCMessagesView, UIImagePickerControllerDelegate, UINavigat
         }
     }
     
-    // MARK: - Avatar methods
-    override func avatarInitials(_ indexPath: IndexPath?) -> String? {
-        let rcmessage = rcmessages[indexPath!.section] 
-        if rcmessage.outgoing {
-            return "you"
-        } else {
-            return "Ad"
-        }
-    }
-    
-    override func avatarImage(_ indexPath: IndexPath?) -> UIImage? {
-        let rcmessage = rcmessages[indexPath!.section]
+    // MARK: - Avatar methods    
+    override func avatarImage(_ indexPath: IndexPath?) -> UIImage {
+        guard indexPath != nil else {return UIImage.named("udAvatarOperator")}
+        let message = messagesWithSection[indexPath!.section][indexPath!.row]
         var image: UIImage? = nil
         do {
-            if  URL(string: rcmessage.avatar) != nil {
-                let anAvatar = URL(string: rcmessage.avatar)
+            if  URL(string: message.avatar) != nil {
+                let anAvatar = URL(string: message.avatar)
                 let anAvatar1 = try Data(contentsOf: anAvatar!)
                 image = UIImage(data: anAvatar1)
-                
             } else {
-                if rcmessage.outgoing == true {
-                    return UIImage.named("avatarClient")
-                } else {
-                    return UIImage.named("avatarOperator") 
-                }
+                return UIImage.named("udAvatarOperator")
             }
-        } catch {
-        }
-//        if let anAvatar = URL(string: rcmessage.avatar ?? ""), let anAvatar1 = Data(contentsOf: anAvatar) {
-//            image = UIImage(data: anAvatar1)
-//        }
-        return image
+        } catch {}
+        return image ?? UIImage.named("udAvatarOperator")
     }
     
     // MARK: - Header, Footer methods
-    override func textBubbleHeader(_ indexPath: IndexPath?) -> String? {
-        return nil
-    }
-    
-    override func textBubbleFooter(_ indexPath: IndexPath?) -> String? {
-        return nil
-    }
-    
-    override func textSectionFooter(_ indexPath: IndexPath?) -> String? {
-        return nil
-    }
     
     override func menuItems(_ indexPath: IndexPath?) -> [Any]? {
-        let menuItemCopy = RCMenuItem(title: "Copy", action: #selector(self.actionMenuCopy(_:)))
+        guard usedesk != nil else {return nil}
+        let menuItemCopy = UDMenuItem(title: usedesk!.stringFor("Copy"), action: #selector(self.actionMenuCopy(_:)))
         menuItemCopy.indexPath = indexPath
         return [menuItemCopy]
     }
@@ -213,91 +245,196 @@ class DialogflowView: RCMessagesView, UIImagePickerControllerDelegate, UINavigat
     }
     
     // MARK: - Refresh methods
-    func refreshTableView1() {
-        refreshTableView2()
-        scroll(toBottom: true)
-    }
-    
-    func refreshTableView2() {
+    func refreshTableView() {
+        // inverter messages
+        var newMessages: [UDMessage] = []
+        for index in 0..<messages.count {
+            newMessages.append(messages[messages.count - 1 - index])
+        }
+        messages = newMessages
+        generateSectionFromModel(messagesArray: messages)
         tableView.reloadData()
-    }
-    
-    func displayDialogflowResponse(_ dictionary: [AnyHashable : Any]?, delay: CGFloat) {
-        let time = DispatchTime.now() + Double(Double(delay) )
-        DispatchQueue.main.asyncAfter(deadline: time , execute: { [weak self] in
-            guard let wSelf = self else {return}
-            wSelf.displayDialogflowResponse(dictionary)
-        })
-    }
-    
-    func displayDialogflowResponse(_ dictionary: [AnyHashable : Any]?) {
-        let result = dictionary?["result"] as? [AnyHashable : Any]
-        let fulfillment = result?["fulfillment"] as? [AnyHashable : Any]
-        let text = fulfillment?["speech"] as? String
-        addMessage(text, incoming: true)
-        //UDAudio.playMessageIncoming()
     }
     
     // MARK: - User actions
     @objc func actionDone() {
-        for rcmessage in rcmessages {
-            if rcmessage.video_path != "" {
+        for message in messages {
+            if message.file.path != "" {
+                let url = URL(fileURLWithPath: message.file.path)
                 do {
-                    try? FileManager().removeItem(atPath: rcmessage.video_path)
-                }
+                    try FileManager.default.removeItem(at: url)
+                } catch {}
             }
         }
-        usedesk?.releaseChat()
+        delegate?.close()
         if isFromBase {
+            usedesk?.closeChat()
             navigationController?.popViewController(animated: true)
         } else {
-            usedesk?.dialogNavController.dismiss(animated: true, completion: nil)
+            usedesk?.releaseChat()
+            usedesk?.navController.dismiss(animated: true, completion: nil)
         }
         self.view.removeFromSuperview()
     }
     
+    @objc func closeFileViewingVC() {
+        fileViewingVC.view.removeFromSuperview()
+        navigationItem.title = usedesk?.nameChat
+        navigationController?.navigationBar.barTintColor = configurationStyle.navigationBarStyle.backgroundColor
+        navigationController?.navigationBar.tintColor = configurationStyle.navigationBarStyle.textColor
+        navigationController?.navigationBar.titleTextAttributes?[.foregroundColor] = configurationStyle.navigationBarStyle.textColor
+        (navigationController as? UDNavigationController)?.setTitleTextAttributes()
+        navigationItem.leftBarButtonItem = UIBarButtonItem(image: configurationStyle.navigationBarStyle.backButtonImage, style: .plain, target: self, action: #selector(self.actionDone))
+        (navigationController as? UDNavigationController)?.isDark = isDark
+        navigationController?.navigationBar.layoutSubviews()
+    }
+    
     override func actionSendMessage(_ text: String?) {
-        usedesk?.sendMessage(text)
+        if text != nil {
+            if text!.count > 0 {
+                let message = UDMessage()
+                message.date = Date()
+                message.type = RC_TYPE_TEXT
+                message.incoming = false
+                message.outgoing = !message.incoming
+                message.text = text!
+                message.typeSenderMessageString = "client_to_operator"
+                if let id = usedesk?.newIdLoadingMessages() {
+                    usedesk!.idLoadingMessages.append(id)
+                    message.loadingMessageId = id
+                    usedesk?.sendMessage(text!, messageId: id)
+                    chekSentMessage(message)
+                } else {
+                    usedesk?.sendMessage(text!)
+                }
+                addMessage(message)
+            }
+        }
         if sendAssets.count > 0 {
             for i in 0..<sendAssets.count {
                 if sendAssets[i] as? PHAsset != nil {
                     let asset = sendAssets[i] as! PHAsset
                     if asset.mediaType == .video {
+                        DispatchQueue.global(qos: .userInitiated).async {
                         let options = PHVideoRequestOptions()
                         options.version = .original
                         PHCachingImageManager.default().requestAVAsset(forVideo: asset, options: options){ [weak self] avasset, _, _ in
                             guard let wSelf = self else {return}
                             if let avassetURL = avasset as? AVURLAsset {
-                                if let video = try? Data(contentsOf: avassetURL.url) {
-                                    let content = "data:video/mp4;base64,\(video.base64EncodedString())"
+                                if let videoData = try? Data(contentsOf: avassetURL.url) {
+                                    let content = "data:video/mp4;base64,\(videoData.base64EncodedString())"
                                     var fileName = String(format: "%ld", content.hash)
                                     fileName += ".mp4"
-                                    wSelf.usedesk?.sendMessage("", withFileName: fileName, fileType: "video/mp4", contentBase64: content)
+                                    let message = UDMessage()
+                                    message.date = Date()
+                                    message.type = RC_TYPE_VIDEO
+                                    message.incoming = false
+                                    message.outgoing = !message.incoming
+                                    message.typeSenderMessageString = "client_to_operator"
+                                    message.file.path = avassetURL.url.path
+                                    message.file.picture = UDFileManager.videoPreview(filePath: avassetURL.url.path)
+                                    message.file.name = fileName
+                                    message.data = videoData
+                                    message.status = RC_STATUS_SUCCEED
+                                    if let id = wSelf.usedesk?.newIdLoadingMessages() {
+                                        wSelf.usedesk!.idLoadingMessages.append(id)
+                                        message.loadingMessageId = id
+                                        wSelf.usedesk?.sendFile(fileName: fileName, data: videoData, messageId: id, status: {_,_ in })
+                                        wSelf.chekSentMessage(message)
+                                    } else {
+                                        wSelf.usedesk?.sendFile(fileName: fileName, data: videoData, status: {_,_ in })
+                                    }
+                                    wSelf.addMessage(message)
                                 }
-                                
                             }
                         }
+                        }
                     } else {
+                        DispatchQueue.global(qos: .userInitiated).async {
                         let options = PHImageRequestOptions()
                         options.isSynchronous = true
-                        PHCachingImageManager.default().requestImage(for: asset, targetSize: CGSize(width: CGFloat(asset.pixelWidth), height: CGFloat(asset.pixelHeight)), contentMode: .aspectFit, options: options, resultHandler: { [weak self] result, info in
+                        PHCachingImageManager.default().requestImage(for: asset, targetSize: CGSize(width: CGFloat(asset.pixelWidth), height: CGFloat(asset.pixelHeight)), contentMode: .aspectFit, options: options, resultHandler: { [weak self] resultImage, info in
                             guard let wSelf = self else {return}
-                            if result != nil {
-                                let content = "data:image/png;base64,\(UseDeskSDKHelp.image(toNSString: result!))"
-                                var fileName = String(format: "%ld", content.hash)
-                                fileName += ".png"
-                                //self.dicLoadingBuffer.updateValue("1", forKey: fileName)
-                                //dicLoadingBuffer[fileName] = "1"
-                                wSelf.usedesk?.sendMessage("", withFileName: fileName, fileType: "image/png", contentBase64: content)
+                            if resultImage != nil {
+                                if let imageData = resultImage!.pngData() {
+                                    let content = "data:image/png;base64,\(imageData)"
+                                    var fileName = String(format: "%ld", content.hash)
+                                    fileName += ".png"
+                                    let message = UDMessage()
+                                    message.date = Date()
+                                    message.type = RC_TYPE_PICTURE
+                                    message.incoming = false
+                                    message.outgoing = !message.incoming
+                                    message.typeSenderMessageString = "client_to_operator"
+                                    message.file.picture = resultImage
+                                    message.file.name = fileName
+                                    message.data = imageData
+                                    message.status = RC_STATUS_SUCCEED
+                                    if let id = wSelf.usedesk?.newIdLoadingMessages() {
+                                        wSelf.usedesk!.idLoadingMessages.append(id)
+                                        message.loadingMessageId = id
+                                        wSelf.usedesk?.sendFile(fileName: fileName, data: imageData, messageId: id, status: {_,_ in })
+                                        wSelf.chekSentMessage(message)
+                                    } else {
+                                        wSelf.usedesk?.sendFile(fileName: fileName, data: imageData, status: {_,_ in })
+                                    }
+                                    wSelf.addMessage(message)
+                                }
                             }
                         })
                     }
+                    }
                 } else if sendAssets[i] as? UIImage != nil {
                     let pickerImage = sendAssets[i] as! UIImage
-                    let content = "data:image/png;base64,\(UseDeskSDKHelp.image(toNSString: pickerImage))"
-                    var fileName = String(format: "%ld", content.hash)
-                    fileName += ".png"
-                    usedesk?.sendMessage("", withFileName: fileName, fileType: "image/png", contentBase64: content)
+                    if let imageData = pickerImage.pngData() {
+                        let content = "data:image/png;base64,\(imageData)"
+                        var fileName = String(format: "%ld", content.hash)
+                        fileName += ".png"
+                        let message = UDMessage()
+                        message.date = Date()
+                        message.type = RC_TYPE_PICTURE
+                        message.incoming = false
+                        message.outgoing = !message.incoming
+                        message.typeSenderMessageString = "client_to_operator"
+                        message.file.picture = pickerImage
+                        message.file.name = fileName
+                        message.data = imageData
+                        message.status = RC_STATUS_SUCCEED
+                        if let id = usedesk?.newIdLoadingMessages() {
+                            usedesk!.idLoadingMessages.append(id)
+                            message.loadingMessageId = id
+                            usedesk?.sendFile(fileName: fileName, data: imageData, messageId: id, status: {_,_ in })
+                            chekSentMessage(message)
+                        } else {
+                            usedesk?.sendFile(fileName: fileName, data: imageData, status: {_,_ in })
+                        }
+                        addMessage(message)
+                    }
+                } else if let urlFile = sendAssets[i] as? URL {
+                    let fileName = urlFile.localizedName ?? urlFile.lastPathComponent
+                    let dataFile = try? Data(contentsOf: urlFile)
+                    if dataFile != nil {
+                        let message = UDMessage()
+                        message.date = Date()
+                        message.type = RC_TYPE_File
+                        message.incoming = false
+                        message.outgoing = !message.incoming
+                        message.typeSenderMessageString = "client_to_operator"
+                        message.file.name = fileName
+                        message.file.sizeInt = dataFile!.count
+                        message.file.path = urlFile.path
+                        message.data = dataFile!
+                        message.status = RC_STATUS_SUCCEED
+                        if let id = usedesk?.newIdLoadingMessages() {
+                            usedesk!.idLoadingMessages.append(id)
+                            message.loadingMessageId = id
+                            usedesk?.sendFile(fileName: fileName, data: dataFile!, messageId: id, status: {_,_ in })
+                            chekSentMessage(message)
+                        } else {
+                            usedesk?.sendFile(fileName: fileName, data: dataFile!, status: {_,_ in })
+                        }
+                        addMessage(message)
+                    }
                 }
             }
             sendAssets = []
@@ -305,194 +442,127 @@ class DialogflowView: RCMessagesView, UIImagePickerControllerDelegate, UINavigat
         closeAttachCollection()
     }
     
-    override func actionAttachMessage() {
-        var maxCountAssets = Constants.maxCountAssets
-        if usedesk != nil {
-            maxCountAssets = usedesk!.maxCountAssets
-        }
-        if sendAssets.count < maxCountAssets {
-            let alertController = UIAlertController(title: "Прикрепить файл", message: nil, preferredStyle: UIAlertController.Style.alert)
-            let cancelAction = UIAlertAction(title: "Отмена", style: .destructive) { (_) -> Void in }
-            let takePhotoAction = UIAlertAction(title: "Камера", style: .default) { (_) -> Void in
-                RequestAuthorizationHelper.requestCameraAccess(showErrorIn: self) { [weak self] hasAccess in
-                    if hasAccess {
-                        DispatchQueue.main.async {
-                            self?.takePhoto()
-                        }
-                    }
-                }
-            }
-            let selectFromPhotosAction = UIAlertAction(title: "Галерея", style: .default) { (_) -> Void in
-                RequestAuthorizationHelper.requestLibraryAccess(showErrorIn: self) { [weak self] hasAccess in
-                    if hasAccess {
-                        DispatchQueue.main.async {
-                            self?.selectPhoto()
-                        }
-                    }
-                }
-            }
-            alertController.addAction(takePhotoAction)
-            alertController.addAction(selectFromPhotosAction)
-            alertController.addAction(cancelAction)
-            self.present(alertController, animated: true, completion: nil)
-        } else {
-            let alertController = UIAlertController(title: "Прикреплено максимальное колличество файлов", message: nil, preferredStyle: UIAlertController.Style.alert)
-            let okAction = UIAlertAction(title: "Ок", style: .default) { (_) -> Void in }
-            alertController.addAction(okAction)
-            self.present(alertController, animated: true, completion: nil)
-        }
-    }
-    
-    func takePhoto() {
-        let picker = UIImagePickerController()
-        picker.delegate = self
-        picker.allowsEditing = true
-        picker.sourceType = .camera
-        present(picker, animated: true)
-    }
-    
-    func selectPhoto() {        
-        let imagePickerController = QBImagePickerController()
-        imagePickerController.delegate = self
-        imagePickerController.allowsMultipleSelection = true
-        var maxCountAssets = UInt(Constants.maxCountAssets - sendAssets.count)
-        if usedesk != nil {
-            maxCountAssets = UInt(usedesk!.maxCountAssets - sendAssets.count)
-        }
-        imagePickerController.maximumNumberOfSelection = maxCountAssets
-        imagePickerController.showsNumberOfSelectedAssets = true
-        switch supportedAttachmentTypes {
-        case .onlyPhoto:
-            imagePickerController.mediaType = .image
-        case .onlyVideo:
-            imagePickerController.mediaType = .video
-        case .any:
-            imagePickerController.mediaType = .any
-        }
-        
-        present(imagePickerController, animated: true)
-    }
-    
-    func qb_imagePickerController(_ imagePickerController: QBImagePickerController?, didFinishPickingAssets assets: [Any]?) {
-        if assets != nil {
-            for asset in assets! {
-                if ((asset as? PHAsset) != nil) {
-                    let anAsset = asset as! PHAsset
-                    if anAsset.mediaType == .image || anAsset.mediaType == .video {
-                        sendAssets.append(anAsset)
-                    }
-                }
-            }
-            showAttachCollection(assets: sendAssets)
-        }
-        buttonInputSend.isEnabled = true
-        dismiss(animated: true)
-    }
-    
-    func qb_imagePickerControllerDidCancel(_ imagePickerController: QBImagePickerController?) {
-        dismiss(animated: true)
-    }
-    
-    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [String : Any]) {
-        let chosenImage = info[UIImagePickerControllerEditedImage] as? UIImage
-        if chosenImage != nil {
-            sendAssets.append(chosenImage!)
-            
-            buttonInputSend.isHidden = false
-        
-            showAttachCollection(assets: sendAssets)
-        }
-        buttonInputSend.isEnabled = true
-        picker.dismiss(animated: true)
-    }
-    
     // MARK: - User actions (menu)
     @objc func actionMenuCopy(_ sender: Any?) {
-        let indexPath: IndexPath? = RCMenuItem.indexPath((sender as! UIMenuController))
-        let rcmessage: RCMessage? = self.rcmessage(indexPath)
-        UIPasteboard.general.string = rcmessage?.text
+        if let indexPath: IndexPath = UDMenuItem.indexPath((sender as! UIMenuController)) {
+            let message: UDMessage? = self.getMessage(indexPath)
+            UIPasteboard.general.string = message?.text
+        }
     }
    
-    // MARK: - Table view data source
+    // MARK: - TableView
     override func numberOfSections(in tableView: UITableView) -> Int {
-        return rcmessages.count
+        return messagesWithSection.count
+    }
+    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard usedesk != nil else {return}
+        if messagesWithSection[indexPath.section][indexPath.row].isNotSent {
+            let alertController = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+            
+            let removeAction = UIAlertAction(title: usedesk!.stringFor("DeleteMessage"), style: .destructive, handler: { [weak self] (alert: UIAlertAction!)  in
+                guard let wSelf = self else {return}
+                if let removeMessage = wSelf.messages.filter({ $0.loadingMessageId == wSelf.messagesWithSection[indexPath.section][indexPath.row].loadingMessageId}).first {
+                    if let index = wSelf.messages.firstIndex(of: removeMessage) {
+                        wSelf.messages.remove(at: index)
+                    }
+                }
+                wSelf.messagesWithSection[indexPath.section].remove(at: indexPath.row)
+                DispatchQueue.main.async(execute: { [weak self] in
+                    guard let wSelf = self else {return}
+                    wSelf.tableView.reloadData()
+                })
+            })
+            
+            let repeatAction = UIAlertAction(title: usedesk!.stringFor("SendAgain"), style: .default, handler: { [weak self] (alert: UIAlertAction!) in
+                guard let wSelf = self else {return}
+                let message = wSelf.messagesWithSection[indexPath.section][indexPath.row]
+                if let removeMessage = wSelf.messages.filter({ $0.loadingMessageId == wSelf.messagesWithSection[indexPath.section][indexPath.row].loadingMessageId}).first {
+                    if let index = wSelf.messages.firstIndex(of: removeMessage) {
+                        wSelf.messages.remove(at: index)
+                    }
+                }
+                wSelf.messagesWithSection[indexPath.section].remove(at: indexPath.row)
+                DispatchQueue.main.async(execute: { [weak self] in
+                    guard let wSelf = self else {return}
+                    wSelf.tableView.reloadData()
+                    wSelf.tableView.contentOffset.y = 0
+                })
+                message.isNotSent = false
+                switch message.type {
+                case RC_TYPE_VIDEO, RC_TYPE_PICTURE, RC_TYPE_File:
+                    if message.data != nil {
+                        wSelf.usedesk?.sendFile(fileName: message.file.name, data: message.data!, messageId: message.loadingMessageId, status: {_,_ in })
+                        wSelf.chekSentMessage(message)
+                    }
+                default:
+                    wSelf.actionSendMessage(message.text)
+                }
+                wSelf.addMessage(message)
+            })
+
+            let cancelAction = UIAlertAction(title: "Отменить", style: .cancel, handler: {(alert: UIAlertAction!) in
+            })
+
+            alertController.addAction(repeatAction)
+            alertController.addAction(removeAction)
+            alertController.addAction(cancelAction)
+
+            DispatchQueue.main.async {
+                self.present(alertController, animated: true, completion:{})
+            }
+        }
     }
     
     override func actionTapBubble(_ indexPath: IndexPath?) {
-        let rcmessage = rcmessages[indexPath!.section] 
-        guard let file: RCFile = rcmessage.file else { return }
-        
-        if file.type == "image" || rcmessage.type == RC_TYPE_PICTURE {
-            navigationItem.leftBarButtonItem?.isEnabled = false
-            navigationItem.leftBarButtonItem?.tintColor = .clear
-            if let cell = tableView.cellForRow(at: indexPath!) as? RCPictureMessageCell {
-                rcmessage.status = RC_STATUS_OPENIMAGE
-                cell.bindData(indexPath!, messagesView: self)
+        let message = messagesWithSection[indexPath!.section][indexPath!.row]
+        guard !message.isNotSent else { return }
+        let file: UDFile = message.file
+        if (file.type == "image" || message.type == RC_TYPE_PICTURE || file.type == "video" || message.type == RC_TYPE_VIDEO || file.type == "file" || message.type == RC_TYPE_File) && message.status == RC_STATUS_SUCCEED {
+            navigationItem.title = message.file.name
+            navigationController?.navigationBar.barTintColor = .black
+            navigationController?.navigationBar.tintColor = .white
+            var attributes: [NSAttributedString.Key: Any] = [:]
+            attributes[.foregroundColor] = UIColor.white
+            attributes[.font] = UIFont.systemFont(ofSize: 18)
+            navigationController?.navigationBar.titleTextAttributes = attributes
+            navigationItem.leftBarButtonItem = UIBarButtonItem(image: configurationStyle.navigationBarStyle.backButtonInFileImage, style: .plain, target: self, action: #selector(self.closeFileViewingVC))
+            (navigationController as? UDNavigationController)?.isDark = true
+            navigationController?.navigationBar.layoutSubviews()
+            fileViewingVC = UDFileViewingVC()
+            self.addChild(self.fileViewingVC)
+            self.view.addSubview(self.fileViewingVC.view)
+            fileViewingVC.setBottomViewHC(safeAreaInsetsBottom)
+            var width: CGFloat = self.view.frame.width
+            if UIScreen.main.bounds.height < UIScreen.main.bounds.width {
+                width += safeAreaInsetsLeftOrRight * 2
             }
-            imageVC = UDImageView()
-            self.addChildViewController(self.imageVC)
-            self.view.addSubview(self.imageVC.view)
-            imageVC.view.frame = CGRect(x:0, y: 0, width: self.view.frame.width, height: self.view.frame.height)
-            imageVC.delegate = self
-                let session = URLSession.shared
-                if let url = URL(string: file.content) {
-                    (session.dataTask(with: url, completionHandler: { data, response, error in
-                        if error == nil {
-                            DispatchQueue.main.async(execute: { [weak self] in
-                                guard let wSelf = self else {return}
-                                rcmessage.picture_image = UIImage(data: data!)
-                                if rcmessage.picture_image != nil {
-                                    wSelf.imageVC.showImage(image: rcmessage.picture_image!)
-                                }
-                                if let cell = wSelf.tableView.cellForRow(at: indexPath!) as? RCPictureMessageCell {
-                                    rcmessage.status = RC_STATUS_SUCCEED
-                                    cell.bindData(indexPath!, messagesView: wSelf)
-                                }
-                            })
-                        }
-                    })).resume()
-                }
-        } else if file.type == "video" {
-            if rcmessage.video_path != "" {
-                let videoURL = URL(fileURLWithPath: rcmessage.video_path)
-                let player = AVPlayer(url: videoURL)
-                let playerViewController = AVPlayerViewController()
-                playerViewController.player = player
-                self.present(playerViewController, animated: true) {
-                    playerViewController.player?.play()
-                }
-            }
-        } else {
-            let url = URL(string: file.content)
-            
-            if #available(iOS 10.0, *) {
-                if UIApplication.shared.responds(to: #selector(UIApplication.open(_:options:completionHandler:))) {
-                    if let anUrl = url {
-                        UIApplication.shared.open(anUrl, options: [:], completionHandler: nil)
-                    }
-                } else {
-                    // Fallback on earlier versions
-                    if let anUrl = url {
-                        UIApplication.shared.openURL(anUrl)
-                    }
-                }
+            fileViewingVC.view.frame = CGRect(x:0, y:0, width: width, height: self.view.frame.height)
+            if file.type == "image" || message.type == RC_TYPE_PICTURE {
+                fileViewingVC.filePath = file.path
+                fileViewingVC.typeFile = .image
+                fileViewingVC.viewimage.image = file.picture
+            } else if file.type == "video" || message.type == RC_TYPE_VIDEO {
+                fileViewingVC.filePath = file.path
+                fileViewingVC.typeFile = .video
+                fileViewingVC.videoImage = file.picture
             } else {
-                if let anUrl = url {
-                    UIApplication.shared.openURL(anUrl)
-                }
+                fileViewingVC.filePath = file.path
+                fileViewingVC.typeFile = .file
+                fileViewingVC.fileName = file.name
+                fileViewingVC.fileSize = file.sizeString
             }
-            
+            fileViewingVC.updateState()
         }
-        
     }
 }
-
+// MARK: - Extension Date
 extension Date {
     var isToday: Bool {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "dd MM yyyy"
-        dateFormatter.locale = Locale(identifier: "ru")
-        dateFormatter.timeZone = TimeZone(identifier: "Europe/Moscow")
+        dateFormatter.locale = .current
+        dateFormatter.timeZone = TimeZone.current
         let date1 = dateFormatter.string(from: self)
         let date2 = dateFormatter.string(from: Date())
         if date1 == date2 {
@@ -502,137 +572,49 @@ extension Date {
         }
     }
     
-    var timeString: String {
+    var time: String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "HH:mm"
-        dateFormatter.locale = Locale(identifier: "ru")
-        dateFormatter.timeZone = TimeZone(identifier: "Europe/Moscow")
+        dateFormatter.locale = .current
+        dateFormatter.timeZone = TimeZone.current
         return dateFormatter.string(from: self)
     }
     
     var timeAndDayString: String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "dd.MM.yyyy HH:mm"
-        dateFormatter.locale = Locale(identifier: "ru")
-        dateFormatter.timeZone = TimeZone(identifier: "Europe/Moscow")
+        dateFormatter.locale = .current
+        dateFormatter.timeZone = TimeZone.current
         return dateFormatter.string(from: self)
     }
     
-    var dateFromHeaderComments: String {
+    func dateFromHeaderChat(_ usedesk : UseDeskSDK) -> String {
         let calendar = Calendar.current
         let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "ru")
+        dateFormatter.locale = .current
         dateFormatter.timeZone = TimeZone.current
         var dayString = ""
         if calendar.isDateInYesterday(self) {
-            dayString = "Вчера"
+            dayString = usedesk.stringFor("Yesterday")
         } else if calendar.isDateInToday(self) {
-            dayString = "Сегодня"
+            dayString = usedesk.stringFor("Today")
         } else {
             dateFormatter.dateFormat = "d MMMM"
             dayString = dateFormatter.string(from: self)
         }
-        return dayString + " " + self.timeString//dateFormatter.string(from: self)
+        return dayString
+    }
+    
+    var dateFormatString: String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.locale = .current
+        dateFormatter.timeZone = TimeZone.current
+        return dateFormatter.string(from: self)
     }
 }
 
-extension DialogflowView: UDImageViewDelegate {
-    func close() {
-        imageVC.view.removeFromSuperview()
-        navigationItem.leftBarButtonItem?.isEnabled = true
-        navigationItem.leftBarButtonItem?.tintColor = nil
-    }
-    
-}
-
-// Helper which checks if application has access to Camera or Photos Library and show alert with link to settings if user previously forbid access
-private class RequestAuthorizationHelper {
-
-    static func requestCameraAccess(showErrorIn vc: UIViewController, handler: @escaping (Bool) -> Void) {
-        requestDeviceAuthorization(showErrorIn: vc, mediaType: AVMediaType.video.rawValue, handler: handler)
-    }
-
-    private static let mediaTypeLibrary: String = "Library"
-    static func requestLibraryAccess(showErrorIn vc: UIViewController, handler: @escaping (Bool) -> Void) {
-        requestDeviceAuthorization(showErrorIn: vc, mediaType: mediaTypeLibrary, handler: handler)
-    }
-
-    private static func presentAccessDeniedAlert(from vc: UIViewController, mediaType: String) {
-        DispatchQueue.main.async {
-            var message: String = ""
-
-            switch mediaType {
-            case mediaTypeLibrary:
-                message = "У приложения нет доступа к библиотеке фотографий. Пожалуйста, разрешите доступ в настройках."
-            case AVMediaType.video.rawValue:
-                message = "У приложения нет доступа к камере. Пожалуйста, разрешите доступ в настройках."
-            default: break
-            }
-
-            presentMediaTypeDeniedAlertWithMessage(messageFormat: message, fromVC: vc)
-        }
-        
-    }
-    
-    private static func requestDeviceAuthorization(showErrorIn vc: UIViewController, mediaType: String, handler: @escaping (Bool) -> Void) {
-        if mediaType == mediaTypeLibrary {
-            switch PHPhotoLibrary.authorizationStatus() {
-            case .notDetermined:
-                PHPhotoLibrary.requestAuthorization() { status in
-                    guard status == .authorized else {
-                        presentAccessDeniedAlert(from: vc, mediaType: mediaType)
-                        handler(false)
-                        return
-                    }
-                    handler(true)
-                }
-            case .denied:
-                presentAccessDeniedAlert(from: vc, mediaType: mediaType)
-                handler(false)
-            default:
-                handler(true)
-            }
-        } else {
-            let mediaType: AVMediaType = AVMediaType(mediaType)
-
-            switch AVCaptureDevice.authorizationStatus(for: mediaType) {
-            case .notDetermined:
-                AVCaptureDevice.requestAccess(for: mediaType) { granted in
-                    guard granted else {
-                        presentAccessDeniedAlert(from: vc, mediaType: mediaType.rawValue)
-                        handler(false)
-                        return
-                    }
-                    handler(true)
-                }
-            case .denied:
-                presentAccessDeniedAlert(from: vc, mediaType: mediaType.rawValue)
-                handler(false)
-            default:
-                handler(true)
-            }
-        }
-    }
-
-    private static func presentMediaTypeDeniedAlertWithMessage(messageFormat: String, fromVC vc: UIViewController) {
-        guard let appName = Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String else {
-            return
-        }
-
-        let message = String(format: messageFormat, arguments: [appName])
-
-        let alertController = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-
-        let dismissAction = UIAlertAction(title: "Закрыть", style: .cancel, handler: nil)
-        alertController.addAction(dismissAction)
-
-        let settingsAction = UIAlertAction.init(title: "В настройки", style: .default) { (action) in
-            if let url = URL(string: UIApplicationOpenSettingsURLString), UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url, options: [:], completionHandler: nil)
-            }
-        }
-        alertController.addAction(settingsAction)
-
-        vc.present(alertController, animated: true, completion: nil)
-    }
+// Helper function inserted by Swift 4.2 migrator.
+fileprivate func convertToUIApplicationOpenExternalURLOptionsKeyDictionary(_ input: [String: Any]) -> [UIApplication.OpenExternalURLOptionsKey: Any] {
+	return Dictionary(uniqueKeysWithValues: input.map { key, value in (UIApplication.OpenExternalURLOptionsKey(rawValue: key), value)})
 }

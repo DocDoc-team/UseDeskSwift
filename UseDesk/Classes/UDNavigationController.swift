@@ -10,20 +10,24 @@ class UDNavigationController: UINavigationController {
     var titleTextColor: UIColor?
     var titleTextFont: UIFont?
     
+    var configurationStyle: ConfigurationStyle = ConfigurationStyle()
+    var isDark = false
+
     override var preferredStatusBarStyle: UIStatusBarStyle {
-        return statusBarStyle ?? super.preferredStatusBarStyle
+        return isDark ? .lightContent : .default
     }
     
     override func viewDidLoad() {
-        
         super.viewDidLoad()
         
+        isDark = configurationStyle.navigationBarStyle.statusBarStyle == .default ? false : true
+
         navigationBar.isTranslucent = false
         
-        tintColor = (tintColor != nil) ? tintColor : navBarTextColor
+        tintColor = configurationStyle.navigationBarStyle.textColor
         
-        titleTextColor = titleTextColor ?? navBarTextColor
-        titleTextFont = titleTextFont ?? navBarTextFont
+        titleTextColor = configurationStyle.navigationBarStyle.textColor
+        titleTextFont = configurationStyle.navigationBarStyle.font
         
         barTintColor = (barTintColor != nil) ? barTintColor : navBarBackgroundColor
         if #available(iOS 13.0, *) {

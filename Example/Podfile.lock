@@ -1,32 +1,15 @@
 PODS:
-  - Alamofire (5.2.2)
-  - FLAnimatedImage (1.0.12)
-  - MBProgressHUD (1.2.0)
-  - NYTPhotoViewer (1.2.0):
-    - NYTPhotoViewer/AnimatedGifSupport (= 1.2.0)
-    - NYTPhotoViewer/Core (= 1.2.0)
-  - NYTPhotoViewer/AnimatedGifSupport (1.2.0):
-    - FLAnimatedImage (~> 1.0.12)
-    - NYTPhotoViewer/Core
-  - NYTPhotoViewer/Core (1.2.0)
-  - ProgressHUD (2.70)
-  - QBImagePickerController (3.4.0)
-  - SDWebImage (4.4.8):
-    - SDWebImage/Core (= 4.4.8)
-  - SDWebImage/Core (4.4.8)
-  - Socket.IO-Client-Swift (14.0.0):
-    - Starscream (~> 3.0.6)
-  - Starscream (3.0.6)
-  - "UIAlertController+Blocks (0.9.2)"
-  - UseDesk_SDK_Swift (0.3.17):
-    - Alamofire (~> 5.0)
-    - MBProgressHUD (~> 1.0)
-    - NYTPhotoViewer (= 1.2.0)
-    - ProgressHUD
-    - QBImagePickerController (~> 3.4)
-    - SDWebImage (~> 4.0)
-    - Socket.IO-Client-Swift (~> 14.0)
-    - "UIAlertController+Blocks"
+  - Alamofire (5.4.1)
+  - Down (0.11.0)
+  - Socket.IO-Client-Swift (16.0.1):
+    - Starscream (~> 4.0)
+  - Starscream (4.0.4)
+  - Swime (3.0.6)
+  - UseDesk_SDK_Swift (1.2.4):
+    - Alamofire (~> 5)
+    - Down
+    - Socket.IO-Client-Swift (~> 16.0)
+    - Swime
 
 DEPENDENCIES:
   - UseDesk_SDK_Swift (from `../`)
@@ -34,33 +17,23 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - Alamofire
-    - FLAnimatedImage
-    - MBProgressHUD
-    - NYTPhotoViewer
-    - ProgressHUD
-    - QBImagePickerController
-    - SDWebImage
+    - Down
     - Socket.IO-Client-Swift
     - Starscream
-    - "UIAlertController+Blocks"
+    - Swime
 
 EXTERNAL SOURCES:
   UseDesk_SDK_Swift:
     :path: "../"
 
 SPEC CHECKSUMS:
-  Alamofire: 814429acc853c6c54ff123fc3d2ef66803823ce0
-  FLAnimatedImage: 4a0b56255d9b05f18b6dd7ee06871be5d3b89e31
-  MBProgressHUD: 3ee5efcc380f6a79a7cc9b363dd669c5e1ae7406
-  NYTPhotoViewer: 323217e4590a1586eb3c9674b3fefb0fb8b57896
-  ProgressHUD: e603e8b8622c47d8818b9fb38b3cfe9d3e7ca421
-  QBImagePickerController: d54cf93db6decf26baf6ed3472f336ef35cae022
-  SDWebImage: 783af2c3fa36291a250030c4752ee370a9a51d13
-  Socket.IO-Client-Swift: 21e6a8a23a7d367d5ddfab6cbbd3c679cf3c25d6
-  Starscream: ef3ece99d765eeccb67de105bfa143f929026cf5
-  "UIAlertController+Blocks": 80e28b92523fb58aba4d1bccec013d5a0b0bddb2
-  UseDesk_SDK_Swift: 64ff6cc9983c70af6a9420e8a16945989f45d6aa
+  Alamofire: 2291f7d21ca607c491dd17642e5d40fdcda0e65c
+  Down: b6ba1bc985c9d2f4e15e3b293d2207766fa12612
+  Socket.IO-Client-Swift: c116d6dc9fd6be9c259bacfe143f8725bce7d79e
+  Starscream: 5178aed56b316f13fa3bc55694e583d35dd414d9
+  Swime: d7b2c277503b6cea317774aedc2dce05613f8b0b
+  UseDesk_SDK_Swift: 3cba92920cd446ae7a6baa3525b26d60807a1ce0
 
-PODFILE CHECKSUM: bbc3836925ebcc11f98b8ec2676c7a91e860d84a
+PODFILE CHECKSUM: 06473a34d829d02e32f611b837c8eb34f4866fb0
 
-COCOAPODS: 1.9.3
+COCOAPODS: 1.10.1
